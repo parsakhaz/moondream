@@ -32,7 +32,11 @@ Download `model.safetensors` from the [Hugging Face repository](https://huggingf
 mkdir -p models
 
 # Download it using curl (run from root moondream directory)
-wget https://huggingface.co/vikhyatk/moondream2/resolve/main/model.safetensors
+# For Linux/Mac
+curl -L https://huggingface.co/vikhyatk/moondream2/resolve/main/model.safetensors -o models/moondream_base.safetensors
+
+# For Windows
+curl.exe -L "https://huggingface.co/vikhyatk/moondream2/resolve/main/model.safetensors" -o "models\moondream_base.safetensors"
 ```
 
 ## Weights & Biases

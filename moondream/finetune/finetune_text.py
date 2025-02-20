@@ -14,7 +14,7 @@ from ..torch.moondream import MoondreamModel, MoondreamConfig, text_encoder
 from ..torch.text import _produce_hidden, _lm_head, TextConfig
 
 # This is a intended to be a basic starting point. Your optimal hyperparams and data may be different.
-MODEL_PATH = ""
+MODEL_PATH = "models/moondream_base.safetensors"
 # Your data should end with the eos token. Here is the textual representation.
 ANSWER_EOS = "<|endoftext|>"
 LR = 5e-6
@@ -152,7 +152,7 @@ def main():
     # Add save path: ex. home/model.safetensors
     save_file(
         model.state_dict(),
-        "",
+        "models/moondream_text_finetuned.safetensors",
     )
 
 

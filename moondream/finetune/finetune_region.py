@@ -20,9 +20,10 @@ from ..torch.region import (
     encode_coordinate,
     encode_size,
 )
+from ..torch.weights import load_weights_into_model
 
 # This is a intended to be a basic starting point. Your optimal hyperparams and data may be different.
-MODEL_PATH = ""
+MODEL_PATH = "models/moondream_base.safetensors"
 # Your data should end with the eos token. Here is the textual representation.
 ANSWER_EOS = "<|endoftext|>"
 LR = 5e-5
@@ -70,7 +71,7 @@ def region_loss(
 class CocoDataset(Dataset):
     """
     Dataset class for COCO type data.
-    To download the Roboflow railwayvision dataset visit: https://universe.roboflow.com/research-zwl99/railwayvision
+    To download the Roboflow railwayvision dataset visit: https://universe.roboflow.com/research-zwl99/railwayvision4class
     Make sure to use COCO JSON format.
     """
 
@@ -155,7 +156,7 @@ def main():
 
     config = MoondreamConfig()
     model = MoondreamModel(config)
-    # load_weights_into_model(MODEL_PATH, model)
+    load_weights_into_model(MODEL_PATH, model)
 
     optimizer = AdamW8bit(
         [
@@ -168,8 +169,8 @@ def main():
 
     # Add path to annotation file and img dir
     dataset = CocoDataset(
-        annotation_file="",
-        img_dir="",
+        annotation_file="C:/Users/khaza/Documents/aGit/moondream/train/_annotations.coco.json",
+        img_dir="C:/Users/khaza/Documents/aGit/moondream/train/",
     )
 
     total_steps = EPOCHS * len(dataset) // GRAD_ACCUM_STEPS
@@ -178,61 +179,60 @@ def main():
     i = 0
     for epoch in range(EPOCHS):
         for sample in dataset:
-            with torch.no_grad():
-                i += 1
-                img_emb = model._run_vision_encoder(sample["image"])
-                bos_emb = text_encoder(
-                    torch.tensor(
-                        [[model.config.tokenizer.bos_id]], device=model.device
-                    ),
-                    model.text,
+            i += 1
+            img_emb = model._run_vision_encoder(sample["image"])
+            bos_emb = text_encoder(
+                torch.tensor(
+                    [[model.config.tokenizer.bos_id]], device=model.device
+                ),
+                model.text,
+            )
+
+            # Basic prompt to detect a crack in the railway tracks
+            instruction = "\n\nDetect: crack\n\n"
+            instruction_tokens = model.tokenizer.encode(instruction).ids
+            instruction_emb = text_encoder(
+                torch.tensor([[instruction_tokens]], device=model.device),
+                model.text,
+            ).squeeze(0)
+
+            eos_token = model.tokenizer.encode(ANSWER_EOS).ids
+            eos_emb = text_encoder(
+                torch.tensor([eos_token], device=model.device),
+                model.text,
+            )
+
+            cs_emb = []
+            cs_labels = []
+            c_idx = []
+            s_idx = []
+            if len(sample["boxes"]) > 1:
+                pass
+
+            for bb in sample["boxes"]:
+                l_cs = len(cs_emb)
+                cs_emb.extend(
+                    [
+                        encode_coordinate(bb[0].unsqueeze(0), model.region),
+                        encode_coordinate(bb[1].unsqueeze(0), model.region),
+                        encode_size(bb[2:4], model.region),
+                    ]
+                )
+                c_idx.extend([l_cs, l_cs + 1])
+                s_idx.append(l_cs + 2)
+                cs_labels.extend(
+                    [min(max(torch.round(p * 1023), 0), 1023) for p in bb]
                 )
 
-                # Basic prompt to detect a crack in the railway tracks
-                instruction = "\n\nDetect: crack\n\n"
-                instruction_tokens = model.tokenizer.encode(instruction).ids
-                instruction_emb = text_encoder(
-                    torch.tensor([[instruction_tokens]], device=model.device),
-                    model.text,
-                ).squeeze(0)
+            cs_emb = torch.stack(cs_emb)
 
-                eos_token = model.tokenizer.encode(ANSWER_EOS).ids
-                eos_emb = text_encoder(
-                    torch.tensor([eos_token], device=model.device),
-                    model.text,
-                )
-
-                cs_emb = []
-                cs_labels = []
-                c_idx = []
-                s_idx = []
-                if len(sample["boxes"]) > 1:
-                    pass
-
-                for bb in sample["boxes"]:
-                    l_cs = len(cs_emb)
-                    cs_emb.extend(
-                        [
-                            encode_coordinate(bb[0].unsqueeze(0), model.region),
-                            encode_coordinate(bb[1].unsqueeze(0), model.region),
-                            encode_size(bb[2:4], model.region),
-                        ]
-                    )
-                    c_idx.extend([l_cs, l_cs + 1])
-                    s_idx.append(l_cs + 2)
-                    cs_labels.extend(
-                        [min(max(torch.round(p * 1023), 0), 1023) for p in bb]
-                    )
-
-                cs_emb = torch.stack(cs_emb)
-
-                inputs_embeds = torch.cat(
-                    [bos_emb, img_emb[None], instruction_emb, cs_emb[None], eos_emb],
-                    dim=1,
-                )
-                prefix = inputs_embeds.size(1) - cs_emb.size(0)
-                c_idx = torch.tensor(c_idx) + prefix
-                s_idx = torch.tensor(s_idx) + prefix
+            inputs_embeds = torch.cat(
+                [bos_emb, img_emb[None], instruction_emb, cs_emb[None], eos_emb],
+                dim=1,
+            )
+            prefix = inputs_embeds.size(1) - cs_emb.size(0)
+            c_idx = torch.tensor(c_idx) + prefix
+            s_idx = torch.tensor(s_idx) + prefix
 
             hidden = _produce_hidden(
                 inputs_embeds=inputs_embeds, w=model.text, config=config.text
@@ -264,7 +264,7 @@ def main():
     # Add save path: ex. home/model.safetensors
     save_file(
         model.state_dict(),
-        "",
+        "models/moondream_region_finetuned.safetensors",
     )
 
 
